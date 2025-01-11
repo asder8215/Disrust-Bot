@@ -1,3 +1,6 @@
+use std::io::{Read, Write};
+use std::process::{Command, Stdio};
+
 use anyhow::Context as _;
 use serenity::all::{CreateCommand, CreateCommandOption, CreateMessage, Interaction};
 use serenity::{all::CreateAttachment, async_trait};
@@ -23,6 +26,55 @@ impl EventHandler for Bot {
                 error!("Error sending message: {:?}", e);
             }
         }
+        // else if msg.content.starts_with("!test") {
+        //     if let Some(image) = msg.attachments.get(0) {
+        //         // Ensure the attachment is an image
+        //         if let Some(img_width) = image.width {
+        //             if let Some(img_height) = image.height {
+        //                 // Download image data
+        //                 let response = reqwest::get(&image.url).await.expect("Failed to download image");
+        //                 let img_bytes = response.bytes().await.expect("Failed to read image bytes");
+                        
+        //                 // Prepare image for compression
+        //                 let img_to_compress = turbojpeg::Image {
+        //                     pixels: &img_bytes.to_vec()[..],
+        //                     width: img_width as usize,
+        //                     pitch: img_width as usize * turbojpeg::PixelFormat::RGB.size(),
+        //                     height: img_height as usize,
+        //                     format: turbojpeg::PixelFormat::RGB,
+        //                 };
+        
+        //                 // Compress image
+        //                 let mut compressor = turbojpeg::Compressor::new().expect("Failed to create compressor");
+        //                 compressor.set_quality(70).expect("Failed to set quality");
+        //                 compressor.set_subsamp(turbojpeg::Subsamp::Sub2x2).expect("Failed to set subsampling");
+        
+        //                 // let mut output_buf = turbojpeg::OutputBuf::new_owned();
+        //                 let output_buf = compressor.compress_to_vec(img_to_compress).expect("Failed to compress image");
+        
+        //                 // Create attachment for compressed image
+        //                 let attachment = CreateAttachment::bytes(&*output_buf, &image.filename);
+        
+        //                 // Send response message
+        //                 let builder = CreateMessage::new()
+        //                     .content(format!(
+        //                         "Reduced image size of {} from {} bytes to {} bytes",
+        //                         &image.filename,
+        //                         image.size,
+        //                         output_buf.len()
+        //                     ))
+        //                     .add_file(attachment);
+        //                 let _ = msg.channel_id.send_message(&ctx.http, builder).await.expect("Failed to send message");
+        //             } else {
+        //                 let _ = msg.channel_id.say(&ctx.http, "Image dimensions not found.").await;
+        //             }
+        //         } else {
+        //             let _ = msg.channel_id.say(&ctx.http, "Attachment is not an image.").await;
+        //         }
+        //     } else {
+        //         let _ = msg.channel_id.say(&ctx.http, "No attachments found.").await;
+        //     }
+        // }
         else if msg.content.starts_with("!test") {
             if let Some(image) = msg.attachments.get(0) {
                 // Ensure the attachment is an image
@@ -31,36 +83,50 @@ impl EventHandler for Bot {
                         // Download image data
                         let response = reqwest::get(&image.url).await.expect("Failed to download image");
                         let img_bytes = response.bytes().await.expect("Failed to read image bytes");
-                        
-                        // Prepare image for compression
-                        let img_to_compress = turbojpeg::Image {
-                            pixels: &img_bytes.to_vec()[..],
-                            width: img_width as usize,
-                            pitch: img_width as usize * turbojpeg::PixelFormat::RGB.size(),
-                            height: img_height as usize,
-                            format: turbojpeg::PixelFormat::RGB,
+    
+                        // Compress the image using mozjpeg's cjpeg tool, directly in memory
+                        let status = Command::new("cjpeg")
+                            .arg("-quality")
+                            .arg("70") // Set the quality
+                            .arg("-outfile") // Output to stdout
+                            .arg("-")
+                            .stdin(Stdio::piped()) // Pipe input
+                            .stdout(Stdio::piped()) // Pipe output
+                            .spawn()
+                            .expect("Failed to spawn cjpeg process");
+    
+                        let mut child = status; // This is the process handle
+    
+                        // Write the image bytes to the stdin of cjpeg
+                        {
+                            let mut stdin = child.stdin.as_mut().expect("Failed to open stdin");
+                            stdin.write_all(&img_bytes).expect("Failed to write to stdin");
+                        }
+    
+                        // Read the compressed image from the stdout of cjpeg
+                        let output_bytes = {
+                            let mut stdout = child.stdout.take().expect("Failed to open stdout");
+                            let mut output = Vec::new();
+                            stdout.read_to_end(&mut output).expect("Failed to read from stdout");
+                            output
                         };
-        
-                        // Compress image
-                        let mut compressor = turbojpeg::Compressor::new().expect("Failed to create compressor");
-                        compressor.set_quality(70).expect("Failed to set quality");
-                        compressor.set_subsamp(turbojpeg::Subsamp::Sub2x2).expect("Failed to set subsampling");
-        
-                        // let mut output_buf = turbojpeg::OutputBuf::new_owned();
-                        let output_buf = compressor.compress_to_vec(img_to_compress).expect("Failed to compress image");
-        
-                        // Create attachment for compressed image
-                        let attachment = CreateAttachment::bytes(&*output_buf, &image.filename);
-        
-                        // Send response message
+    
+                        // Wait for the cjpeg process to finish
+                        let _ = child.wait().expect("cjpeg process failed");
+    
+                        // Create the attachment for the compressed image
+                        let attachment = CreateAttachment::bytes(&*output_bytes, &image.filename);
+    
+                        // Send the compressed image
                         let builder = CreateMessage::new()
                             .content(format!(
                                 "Reduced image size of {} from {} bytes to {} bytes",
                                 &image.filename,
                                 image.size,
-                                output_buf.len()
+                                output_bytes.len()
                             ))
                             .add_file(attachment);
+    
                         let _ = msg.channel_id.send_message(&ctx.http, builder).await.expect("Failed to send message");
                     } else {
                         let _ = msg.channel_id.say(&ctx.http, "Image dimensions not found.").await;

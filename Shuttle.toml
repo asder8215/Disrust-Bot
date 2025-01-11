@@ -1,7 +1,4 @@
 name = "disrust-bot"
 
-[dependencies]
-system-packages = ["nasm", "cmake", "gcc", "g++", "make", "libjpeg-turbo-dev"]
-
 [deploy]
 deny_dirty = true
