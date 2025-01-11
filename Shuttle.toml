@@ -1,9 +1,5 @@
 [dependencies]
-system-packages = ["nasm", "cmake", "gcc", "g++", "make", "libjpeg-turbo8-dev"]
-
-[env]
-TURBOJPEG_DYNAMIC = "1"
-CMAKE_ASM_NASM_COMPILER = "/usr/bin/nasm"
+system-packages = ["nasm", "cmake", "gcc", "g++", "make", "libjpeg-turbo-dev"]
 
 [deploy]
 deny_dirty = true
