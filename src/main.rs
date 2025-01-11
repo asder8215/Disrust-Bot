@@ -10,6 +10,7 @@ use serenity::model::id::GuildId;
 use serenity::prelude::*;
 use shuttle_runtime::SecretStore;
 use tracing::{error, info};
+use mozjpeg;
 
 // struct Bot{
 //     guild_id: String
@@ -18,8 +19,28 @@ use tracing::{error, info};
 
 struct Bot;
 
+struct MyImage {
+    width: usize,
+    height: usize,
+    pixels: Vec<u8>
+}
+
+impl MyImage {
+    /// Optimize image to jpeg, the quality 60-80 are recommended.
+    pub async fn to_mozjpeg(&self, quality: u8) -> Result<Vec<u8>, Box<dyn std::error::Error + Send>> {
+        let mut comp = mozjpeg::Compress::new(mozjpeg::ColorSpace::JCS_RGB);
+        comp.set_size(self.width, self.height);
+        comp.set_quality(quality as f32);
+        let mut comp = comp.start_compress(Vec::new()).expect("Data did not start compressing");
+        comp.write_scanlines(&*self.pixels).expect("Scanlines were not written");
+        let data = comp.finish().expect("Data did not finish compressing");
+        Ok(data)
+    }
+}
+
 #[async_trait]
 impl EventHandler for Bot {
+
     async fn message(&self, ctx: Context, msg: Message) {
         if msg.content == "!hello" {
             if let Err(e) = msg.channel_id.say(&ctx.http, "world!").await {
@@ -78,64 +99,103 @@ impl EventHandler for Bot {
         else if msg.content.starts_with("!test") {
             if let Some(image) = msg.attachments.get(0) {
                 // Ensure the attachment is an image
-                if let Some(img_width) = image.width {
-                    if let Some(img_height) = image.height {
+                if let (Some(img_width), Some(img_height)) = (image.width, image.height) {
                         // Download image data
                         let response = reqwest::get(&image.url).await.expect("Failed to download image");
                         let img_bytes = response.bytes().await.expect("Failed to read image bytes");
     
                         // Compress the image using mozjpeg's cjpeg tool, directly in memory
-                        let status = Command::new("cjpeg")
-                            .arg("-quality")
-                            .arg("70") // Set the quality
-                            .arg("-outfile") // Output to stdout
-                            .arg("-")
-                            .stdin(Stdio::piped()) // Pipe input
-                            .stdout(Stdio::piped()) // Pipe output
-                            .spawn()
-                            .expect("Failed to spawn cjpeg process");
-    
-                        let mut child = status; // This is the process handle
-    
-                        // Write the image bytes to the stdin of cjpeg
-                        {
-                            let mut stdin = child.stdin.as_mut().expect("Failed to open stdin");
-                            stdin.write_all(&img_bytes).expect("Failed to write to stdin");
-                        }
-    
-                        // Read the compressed image from the stdout of cjpeg
-                        let output_bytes = {
-                            let mut stdout = child.stdout.take().expect("Failed to open stdout");
-                            let mut output = Vec::new();
-                            stdout.read_to_end(&mut output).expect("Failed to read from stdout");
-                            output
+                        // let status = Command::new("cjpeg")
+                        //     .arg("-quality")
+                        //     .arg("70") // Set the quality
+                        //     .arg("-outfile") // Output to stdout
+                        //     .arg("-")
+                        //     .stdin(Stdio::piped()) // Pipe input
+                        //     .stdout(Stdio::piped()) // Pipe output
+                        //     .spawn()
+                        //     .expect("Failed to spawn cjpeg process");
+
+                        // let mut comp = mozjpeg::Compress::new(mozjpeg::ColorSpace::JCS_RGB);
+                        // comp.set_size(img_width as usize, img_height as usize);
+                        // comp.set_quality(70.0);
+                        // let mut comp = comp.start_compress(Vec::new()).expect("Compress did not start");
+                        // // let mut output_buf = Vec::new();
+
+                        // comp.write_scanlines(&img_bytes.to_vec()[..]).expect("Did not write scanlines");
+
+                        // let data = comp.finish().expect("Did not finish compressing data");
+
+                        let input_image = MyImage {
+                            width: img_width as usize,
+                            height: img_height as usize,
+                            pixels: img_bytes.to_vec(), // Raw RGB pixel data here
                         };
+
+                        match input_image.to_mozjpeg(70).await {
+                            Ok(compressed_data) => {
+                                let attachment = CreateAttachment::bytes(&*compressed_data, &image.filename);
+
+                                // Send the compressed image
+                                let builder = CreateMessage::new()
+                                    .content(format!(
+                                        "Reduced image size of {} from {} bytes to {} bytes",
+                                        &image.filename,
+                                        image.size,
+                                        compressed_data.len()
+                                    ))
+                                    .add_file(attachment);
+            
+                                let _ = msg.channel_id
+                                    .send_message(&ctx.http, builder)
+                                    .await
+                                    .expect("Failed to send message");
+                            }
+                            Err(e) => {
+                                let _ = msg
+                                    .channel_id
+                                    .say(&ctx.http, format!("Failed to compress image: {}", e))
+                                    .await;
+                            }
+                        }
+                        // let mut child = status; // This is the process handle
     
-                        // Wait for the cjpeg process to finish
-                        let _ = child.wait().expect("cjpeg process failed");
+                        // // Write the image bytes to the stdin of cjpeg
+                        // {
+                        //     let mut stdin = child.stdin.as_mut().expect("Failed to open stdin");
+                        //     stdin.write_all(&img_bytes).expect("Failed to write to stdin");
+                        // }
+    
+                        // // Read the compressed image from the stdout of cjpeg
+                        // let output_bytes = {
+                        //     let mut stdout = child.stdout.take().expect("Failed to open stdout");
+                        //     let mut output = Vec::new();
+                        //     stdout.read_to_end(&mut output).expect("Failed to read from stdout");
+                        //     output
+                        // };
+    
+                        // // Wait for the cjpeg process to finish
+                        // let _ = child.wait().expect("cjpeg process failed");
     
                         // Create the attachment for the compressed image
-                        let attachment = CreateAttachment::bytes(&*output_bytes, &image.filename);
+                        // let attachment = CreateAttachment::bytes(&*data, &image.filename);
     
-                        // Send the compressed image
-                        let builder = CreateMessage::new()
-                            .content(format!(
-                                "Reduced image size of {} from {} bytes to {} bytes",
-                                &image.filename,
-                                image.size,
-                                output_bytes.len()
-                            ))
-                            .add_file(attachment);
+                        // // Send the compressed image
+                        // let builder = CreateMessage::new()
+                        //     .content(format!(
+                        //         "Reduced image size of {} from {} bytes to {} bytes",
+                        //         &image.filename,
+                        //         image.size,
+                        //         1024
+                        //     ))
+                        //     .add_file(attachment);
     
-                        let _ = msg.channel_id.send_message(&ctx.http, builder).await.expect("Failed to send message");
-                    } else {
-                        let _ = msg.channel_id.say(&ctx.http, "Image dimensions not found.").await;
-                    }
+                        // let _ = msg.channel_id.send_message(&ctx.http, builder).await.expect("Failed to send message");
                 } else {
-                    let _ = msg.channel_id.say(&ctx.http, "Attachment is not an image.").await;
+                    let _ = msg.channel_id.say(&ctx.http, "Image dimensions not found.").await;
                 }
-            } else {
-                let _ = msg.channel_id.say(&ctx.http, "No attachments found.").await;
+            }
+            else {
+                let _ = msg.channel_id.say(&ctx.http, "Attachment is not an image.").await;
             }
         }
         
