@@ -1,3 +1,5 @@
+name = "disrust-bot"
+
 [dependencies]
 system-packages = ["nasm", "cmake", "gcc", "g++", "make", "libjpeg-turbo-dev"]
 
