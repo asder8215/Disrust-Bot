@@ -1,17 +1,17 @@
-# Start with the base Shuttle image
-FROM shuttle/worker:latest
+# # Start with the base Shuttle image
+# FROM shuttle/worker:latest
 
-# Install nasm and other dependencies
-RUN apt-get update && apt-get install -y nasm
+# # Install nasm and other dependencies
+# RUN apt-get update && apt-get install -y nasm
 
-# Set up the working directory
-WORKDIR /app
+# # Set up the working directory
+# WORKDIR /app
 
-# Copy the necessary files
-COPY . .
+# # Copy the necessary files
+# COPY . .
 
-# Build the project
-RUN cargo build --release
+# # Build the project
+# RUN cargo build --release
 
-# Specify the command to run your bot
-CMD ["cargo", "run"]
+# # Specify the command to run your bot
+# CMD ["cargo", "run"]
