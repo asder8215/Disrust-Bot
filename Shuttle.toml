@@ -1,4 +1,1 @@
 name = "disrust-bot"
-
-[deploy]
-deny_dirty = true
