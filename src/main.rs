@@ -1,20 +1,16 @@
 mod commands;
 mod structs;
 
-use std::io::Cursor;
 
 use anyhow::Context as _;
 use structs::message::Message;
-use image::{DynamicImage, ImageReader};
-use serenity::all::{CreateCommand, CreateCommandOption, CreateInteractionResponse, CreateInteractionResponseMessage, Interaction};
-use serenity::{all::CreateAttachment};
+use serenity::all::{CreateCommand, CreateInteractionResponse, CreateInteractionResponseMessage, Interaction};
 use serenity::async_trait;
 use serenity::model::gateway::Ready;
 use serenity::model::id::GuildId;
 use serenity::prelude::*;
 use shuttle_runtime::SecretStore;
 use tracing::info;
-use mozjpeg::{Compress, ColorSpace};
 
 struct Bot{
     guild_id: String
