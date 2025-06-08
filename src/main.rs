@@ -1,19 +1,18 @@
 mod commands;
 mod structs;
 
-
 use anyhow::Context as _;
-use structs::message::Message;
-use serenity::all::{CreateCommand, CreateInteractionResponse, CreateInteractionResponseMessage, Interaction};
+use serenity::all::{CreateCommand, EditInteractionResponse, Interaction};
 use serenity::async_trait;
 use serenity::model::gateway::Ready;
 use serenity::model::id::GuildId;
 use serenity::prelude::*;
 use shuttle_runtime::SecretStore;
+use structs::message::Message;
 use tracing::info;
 
-struct Bot{
-    guild_id: String
+struct Bot {
+    guild_id: String,
 }
 
 #[async_trait]
@@ -22,37 +21,34 @@ impl EventHandler for Bot {
         if let Interaction::Command(command) = interaction {
             info!("Received command interaction: {:#?}", command);
 
+            // Defer response of the message since commands like compress
+            // Could take over 3 seconds for the initial response
+            if let Err(why) = command.defer(&ctx.http).await {
+                println!("Cannot respond to slash command: {why}");
+                println!("From here")
+            }
+
             let response_content = match command.data.name.as_str() {
-                "test" => {
-                    Some(Message{
-                        text: "Hello World!".to_string(),
-                        attachment: None,
-                    })
-                }
-                "compress" => {
-                    Some(commands::compress::run(&command.data.options()).await)
-                }
-                command => {
-                    Some(Message{
-                        text: format!("Unknown command: {}", command),
-                        attachment: None,
-                    })
-                },
+                "compress" => Some(commands::compress::run(&command.data.options()).await),
+                command => Some(Message {
+                    text: format!("Unknown command: {}", command),
+                    attachment: None,
+                }),
             };
 
+            // Use EditInteractionResponse to edit the deferred message
+            // to the results
             if let Some(response_content) = response_content {
-                let data:CreateInteractionResponseMessage;
+                let data: EditInteractionResponse;
                 if let Some(attachment) = response_content.attachment {
-                    data = CreateInteractionResponseMessage::new()
+                    data = EditInteractionResponse::new()
                         .content(response_content.text)
-                        .add_file(attachment); 
+                        .new_attachment(attachment);
                 } else {
-                    data = CreateInteractionResponseMessage::new()
-                        .content(response_content.text);
+                    data = EditInteractionResponse::new().content(response_content.text);
                 };
 
-                let builder = CreateInteractionResponse::Message(data);
-                if let Err(why) = command.create_response(&ctx.http, builder).await {
+                if let Err(why) = command.edit_response(&ctx.http, data).await {
                     println!("Cannot respond to slash command: {why}");
                 }
             }
@@ -68,9 +64,10 @@ impl EventHandler for Bot {
             .set_commands(
                 &ctx.http,
                 vec![
-                    CreateCommand::new("test").description("Just a test command for various purposes"),
-                    commands::compress::register()
-                ]
+                    CreateCommand::new("test")
+                        .description("Just a test command for various purposes"),
+                    commands::compress::register(),
+                ],
             )
             .await;
     }
@@ -92,9 +89,7 @@ async fn serenity(
         .get("GUILD_ID")
         .context("'GUILD_ID' was not found")?;
 
-    let bot = Bot {
-        guild_id
-    };
+    let bot = Bot { guild_id };
 
     let client = Client::builder(&token, GatewayIntents::empty())
         .event_handler(bot)
