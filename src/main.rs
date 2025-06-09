@@ -2,7 +2,7 @@ mod commands;
 mod structs;
 
 use anyhow::Context as _;
-use serenity::all::{CreateCommand, EditInteractionResponse, Interaction};
+use serenity::all::{EditInteractionResponse, Interaction};
 use serenity::async_trait;
 use serenity::model::gateway::Ready;
 use serenity::model::id::GuildId;
@@ -61,14 +61,7 @@ impl EventHandler for Bot {
         let guild_id = GuildId::new(self.guild_id.parse().unwrap());
 
         let _ = guild_id
-            .set_commands(
-                &ctx.http,
-                vec![
-                    CreateCommand::new("test")
-                        .description("Just a test command for various purposes"),
-                    commands::compress::register(),
-                ],
-            )
+            .set_commands(&ctx.http, vec![commands::compress::register()])
             .await;
     }
 }
