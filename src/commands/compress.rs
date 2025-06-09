@@ -1,14 +1,12 @@
 use crate::structs::message::Message;
 
-use image::codecs::jpeg::JpegEncoder;
-use image::codecs::png::{CompressionType, FilterType, PngEncoder};
-use image::{ImageEncoder, ImageFormat, ImageReader};
+use image::{ImageFormat, ImageReader};
+use oxipng::{Options, optimize_from_memory};
 use serenity::all::CreateAttachment;
 use serenity::all::{ResolvedOption, ResolvedValue};
 use serenity::builder::{CreateCommand, CreateCommandOption};
 use std::io::Cursor;
 use webp::Encoder as WebPEncoder;
-use oxipng::{optimize_from_memory, Options};
 
 const MAX_IMG_SIZE: usize = 8388608;
 
@@ -37,24 +35,32 @@ async fn compressed_image(
         .decode()
         .map_err(|error| format!("Could not decode image: {error}"))?;
 
-    let mut buffer = Vec::new();
-
     match format_type {
         ImageFormat::Png => {
+            // use default optimization if no preset val given
             if preset_level == 0 {
-                return Ok(optimize_from_memory(pixels, &Options::default())?)
+                return Ok(optimize_from_memory(pixels, &Options::default())?);
             }
-            Ok(optimize_from_memory(pixels, &Options::from_preset(preset_level))?)
+            Ok(optimize_from_memory(
+                pixels,
+                &Options::from_preset(preset_level),
+            )?)
         }
         ImageFormat::Jpeg => {
-            let encoder = JpegEncoder::new_with_quality(&mut buffer, quality);
-            encoder.write_image(
-                image.as_bytes(),
-                image.width(),
-                image.height(),
-                image.color().into(),
-            )?;
-            Ok(buffer)
+            // Sourced from: https://github.com/vicanso/imageoptimize/blob/670bd3f40851c87d5fea5bb3e0e841d98a404c60/src/images.rs#L285
+            let rgb_data = image.as_bytes(); // use a slice rather than vec bc waste of making a copy
+            let mut comp = mozjpeg::Compress::new(mozjpeg::ColorSpace::JCS_RGB);
+            comp.set_size(image.width() as usize, image.height() as usize);
+            comp.set_quality(quality as f32);
+            let mut comp = comp
+                .start_compress(Vec::new())
+                .map_err(|error| format!("Data did not start compressing: {error}"))?;
+            comp.write_scanlines(rgb_data)
+                .map_err(|error| format!("Scanlines were not written: {error}"))?;
+            let data = comp
+                .finish()
+                .map_err(|error| format!("Data did not finish compressing: {error}"))?;
+            Ok(data)
         }
         ImageFormat::WebP => {
             // sourced from here: https://github.com/jaredforth/webp/blob/main/examples/convert.rs
@@ -65,7 +71,6 @@ async fn compressed_image(
         ImageFormat::Gif => {
             todo!()
         }
-
         _ => Err("Unsupported image type".into()),
     }
 }
@@ -182,7 +187,7 @@ pub fn register() -> CreateCommand {
             CreateCommandOption::new(
                 serenity::all::CommandOptionType::Integer,
                 "quality",
-                "Quality Level for jpg and webp to suppress to",
+                "Quality level for jpg and webp to suppress to",
             )
             .required(false)
             .min_int_value(1)
@@ -192,10 +197,10 @@ pub fn register() -> CreateCommand {
             CreateCommandOption::new(
                 serenity::all::CommandOptionType::Integer,
                 "preset",
-                "Png preset level for png (1-6); default compression used otherwise"
+                "Png preset level for png (1-6); default compression used otherwise",
             )
             .required(false)
             .min_int_value(1)
-            .max_int_value(6)
+            .max_int_value(6),
         )
 }
