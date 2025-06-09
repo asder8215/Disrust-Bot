@@ -2,6 +2,14 @@
 name = "disrust-bot"
 version = "0.1.0"
 edition = "2024"
+description = "A Discord Bot that performs image related tasks"
+repository = "https://github.com/asder8215/Disrust-Bot"
+
+[workspace]
+
+
+[workspace.dependencies]
+disrust_bot = { path = "./" }
 
 [dependencies]
 anyhow = "1.0.98"
@@ -9,6 +17,7 @@ base64 = "0.22.1"
 image = "0.25.6"
 log = "0.4.27"
 mozjpeg = "0.10.13"
+oxipng = "9.1.5"
 reqwest = "0.12.15"
 serenity = { version = "0.12.4", default-features = false, features = ["client", "gateway", "rustls_backend", "model"] }
 shuttle-runtime = "0.55.0"
