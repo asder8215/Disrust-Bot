@@ -8,6 +8,7 @@ use serenity::all::{ResolvedOption, ResolvedValue};
 use serenity::builder::{CreateCommand, CreateCommandOption};
 use std::io::Cursor;
 use webp::Encoder as WebPEncoder;
+use oxipng::{optimize_from_memory, Options};
 
 const MAX_IMG_SIZE: usize = 8388608;
 
@@ -20,10 +21,11 @@ fn load_image_from_bytes(
         .map_err(|error| format!("Could not guess image format: {error}"))?)
 }
 
-/// Performs compression on the image for png, jpg, webp, and gif format
+/// Performs compression/optimization on the image for png, jpg, webp, and gif format
 async fn compressed_image(
     pixels: &[u8],
     quality: u8,
+    preset_level: u8,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     // propagates the error from load_image_from_bytes if occurs
     // otherwise it's OK!
@@ -39,18 +41,10 @@ async fn compressed_image(
 
     match format_type {
         ImageFormat::Png => {
-            let encoder = PngEncoder::new_with_quality(
-                &mut buffer,
-                CompressionType::Best,
-                FilterType::Adaptive,
-            );
-            encoder.write_image(
-                image.as_bytes(),
-                image.width(),
-                image.height(),
-                image.color().into(),
-            )?;
-            Ok(buffer)
+            if preset_level == 0 {
+                return Ok(optimize_from_memory(pixels, &Options::default())?)
+            }
+            Ok(optimize_from_memory(pixels, &Options::from_preset(preset_level))?)
         }
         ImageFormat::Jpeg => {
             let encoder = JpegEncoder::new_with_quality(&mut buffer, quality);
@@ -115,8 +109,22 @@ pub async fn run(options: &[ResolvedOption<'_>]) -> Message {
             None => 70,
         };
 
+        let preset_lvl = match options.get(2) {
+            Some(ResolvedOption {
+                value: ResolvedValue::Integer(integer),
+                ..
+            }) => *integer as u8,
+            Some(_) => {
+                return Message {
+                    text: "Invalid preset level".to_string(),
+                    attachment: None,
+                };
+            }
+            None => 0,
+        };
+
         // Attempt compressing image
-        match compressed_image(&img_bytes, quality).await {
+        match compressed_image(&img_bytes, quality, preset_lvl).await {
             Ok(compressed_data) => {
                 // Testing purposes to see if I can see any difference between original image size and compressed image
                 // size
@@ -179,5 +187,15 @@ pub fn register() -> CreateCommand {
             .required(false)
             .min_int_value(1)
             .max_int_value(100),
+        )
+        .add_option(
+            CreateCommandOption::new(
+                serenity::all::CommandOptionType::Integer,
+                "preset",
+                "Png preset level for png (1-6); default compression used otherwise"
+            )
+            .required(false)
+            .min_int_value(1)
+            .max_int_value(6)
         )
 }
